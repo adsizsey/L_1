@@ -1,0 +1,74 @@
+import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense
+from tensorflow.keras.optimizers import SGD
+from tensorflow.keras.regularizers import L1
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.metrics import roc_auc_score
+
+# Define the model
+def create_model(input_dim, lambda_reg):
+    model = Sequential([
+        Dense(1, input_dim=input_dim, activation='sigmoid', kernel_regularizer=L1(lambda_reg))
+    ])
+    return model
+
+# Training function
+def train_model_and_evaluate_auc(model, X_train, y_train, X_val, y_val, epochs=10, batch_size=32, lr=0.01):
+    model.compile(optimizer=SGD(learning_rate=lr), loss='binary_crossentropy', metrics=['accuracy'])
+    model.fit(X_train, y_train, epochs=epochs, batch_size=batch_size, verbose=1, validation_data=(X_val, y_val))
+    
+    # Predict probabilities for validation set
+    y_val_pred = model.predict(X_val).flatten()
+    
+    # Calculate AUC-ROC
+    auc = roc_auc_score(y_val, y_val_pred)
+    return auc
+
+# Extract non-zero weights
+def extract_features(model, threshold=1e-6):
+    weights = model.layers[0].get_weights()[0].flatten()  # Extract weights from the first layer
+    return [i for i, w in enumerate(weights) if abs(w) > threshold]
+
+# Generate synthetic data for demonstration
+def generate_data(num_samples=1000, input_dim=2000):
+    X = np.random.randn(num_samples, input_dim)
+    true_weights = np.random.randn(input_dim)
+    true_weights[np.random.choice(input_dim, size=input_dim-10, replace=False)] = 0  # Sparse true weights
+    logits = X @ true_weights
+    y = (1 / (1 + np.exp(-logits)) > 0.5).astype(float)  # Generate binary labels
+    return X, y
+
+# Example Usage
+input_dim = 2000
+X, y = generate_data(num_samples=5000, input_dim=input_dim)
+X_train, X_val = X[:4000], X[4000:]
+y_train, y_val = y[:4000], y[4000:]
+
+# Test with different lambda values
+lambda_values = [0.01, 0.1, 1, 10]
+auc_scores = []
+selected_features_list = []
+
+for lambda_reg in lambda_values:
+    print(f"Training with lambda: {lambda_reg}")
+    model = create_model(input_dim, lambda_reg)
+    auc = train_model_and_evaluate_auc(model, X_train, y_train, X_val, y_val, epochs=5, batch_size=32, lr=0.01)
+    auc_scores.append(auc)
+    
+    selected_features = extract_features(model)
+    selected_features_list.append(selected_features)
+    print(f"AUC-ROC for lambda {lambda_reg}: {auc}")
+    print(f"Selected features for lambda {lambda_reg}: {len(selected_features)}")
+
+# Plot the results
+plt.figure(figsize=(8, 6))
+plt.plot(lambda_values, auc_scores, marker='o', label="AUC-ROC")
+plt.xlabel('Lambda (L1 Regularization)')
+plt.ylabel('AUC-ROC')
+plt.xscale('log')
+plt.title('AUC-ROC vs Lambda')
+plt.grid()
+plt.legend()
+plt.show()
